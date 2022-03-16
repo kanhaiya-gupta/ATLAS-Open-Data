@@ -1,0 +1,303 @@
+#define mini_cxx
+#include "mini.h"
+#include <TH2.h>
+#include <TStyle.h>
+#include <TCanvas.h>
+#include <vector>
+using std::vector;
+#include <iostream>
+#include <fstream>
+#include "TLorentzVector.h"
+#include "TChain.h"
+#include "TMath.h"
+
+void mini::Loop()
+{
+
+   if (fChain == 0) return;
+
+  
+   Long64_t nentries = fChain->GetEntriesFast();
+
+   Long64_t nbytes = 0, nb = 0;
+   // nentries = 10000;  // number of events
+
+   int count_init = 0;
+   int count_lep = 0;
+   int count_met = 0;
+   int count_trig = 0;
+   int count_bjet = 0;
+   int count_mll = 0;
+   int count_mbb = 0;
+   int count_mllbb = 0;
+   
+  
+ 
+   // booking histograms
+   TFile outf("output.root","RECREATE");  // create a root file
+   std::cout << "creating output.root" <<std::endl;
+   
+   // Defining Histograms
+   //   TH1D* h_leppt= new TH1D("leppt","Leading P_{T} lepton; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   //   TH1D* h_jetpt= new TH1D("jetpt","Leading P_{T} b-jet; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   //   TH1D* h_subjetpt= new TH1D("subjetpt","Sub-leading P_{T} b-jet; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   TH1D* h_mtw= new TH1D("mtw","Transverse mass of W boson; M_{T} (GeV/c^{2}); Events per bin",80,0.,200.);
+   TH1D* h_wmass= new TH1D("wmass","Invariant mass of W boson; M_{jj} (GeV/c^{2}); Events per bin",80,0.,200.);
+   TH1D* h_top= new TH1D("top","Invariant mass of Top quark; M_{jjj} (GeV/c^{2}); Events per bin",100,40.,400.);
+  //  TH2D* h_lepjet2d = new TH2D("lepjet2d","2D Histogram plot ;M_{ll}/92 (GeV/c^{2});M_{bb}/125 (GeV/c^{2})",100,0.6,1.4,100, 0.2, 2.);
+
+  
+   
+   for  (Long64_t jentry=0; jentry<nentries;jentry++) {
+      Long64_t ientry = LoadTree(jentry);
+      if (ientry < 0) break;
+      nb = fChain->GetEntry(jentry);   nbytes += nb;
+      
+      count_init = count_init + 1;
+
+   
+      //Scale factors (adding b-tagging as it is used)
+
+      Float_t scaleFactor = scaleFactor_ELE*scaleFactor_MUON*scaleFactor_LepTRIGGER*scaleFactor_PILEUP*scaleFactor_BTAG;
+
+      //MC weight
+      float  m_mcWeight = mcWeight;
+
+      //Total weight
+      //   float weight = scaleFactor*m_mcWeight*XSection/1000.;
+
+      float weight = 1.;    // data
+
+
+   // cut on at least 4 jets
+      if (jet_n > 3)
+	{
+	  
+        // MET > 30 GeV
+        if(met_et > 30000.)
+	    {     
+      
+//Preselection cut for electron/muon trigger
+	if(trigE || trigM){
+
+  count_trig = count_trig + 1;
+	  
+   // Preselection of good leptons
+   int goodlep_index =0;
+   int goodlep_n = 0;
+   int lep_index =0;
+		  
+   for(unsigned int i=0; i<lep_n; i++)
+      {
+         TLorentzVector leptemp;  leptemp.SetPtEtaPhiE(lep_pt->at(i)/1000., lep_eta->at(i), lep_phi->at(i), lep_E->at(i)/1000.);
+
+		      
+	 // Lepton is Tight
+	 if( lep_isTightID->at(i) )
+	    {
+	   // Lepton is isolated and hard pT
+	  if( lep_pt->at(i) > 30000. && ( (lep_ptcone30->at(i)/lep_pt->at(i)) < 0.15) && ( (lep_etcone20->at(i) / lep_pt->at(i)) < 0.15 ) )
+			    {
+   // electron selection in fiducial region excluding candidates in the transition region between the barrel and endcap electromagnetic calorimeters
+      if ( lep_type->at(i)==11 && TMath::Abs(lep_eta->at(i)) < 2.47 && ( TMath::Abs(lep_eta->at(i)) < 1.37 || TMath::Abs(lep_eta->at(i)) > 1.52 ) ) {
+	  if( TMath::Abs(lep_trackd0pvunbiased->at(i))/lep_tracksigd0pvunbiased->at(i) < 5 && TMath::Abs(lep_z0->at(i)*TMath::Sin(leptemp.Theta())) < 0.5) {
+		    goodlep_n = goodlep_n + 1;
+		    goodlep_index = i;
+		    lep_index++;
+				}
+			      }
+
+      // muon selection
+
+     if ( lep_type->at(i) == 13 && TMath::Abs(lep_eta->at(i)) < 2.5 ) {
+     if( TMath::Abs(lep_trackd0pvunbiased->at(i))/lep_tracksigd0pvunbiased->at(i) < 3 && TMath::Abs(lep_z0->at(i)*TMath::Sin(leptemp.Theta())) < 0.5) {
+				  
+		 goodlep_n = goodlep_n + 1;
+		 goodlep_index = i;
+		  lep_index++;
+				}
+			      }
+			    }
+			}
+		    }
+  
+		  
+ //Exactly one good lepton
+     if(goodlep_n==1)
+         {
+	     
+	    //Preselection of good jets
+	    int goodjet_n = 0;
+	    int goodbjet_n = 0;
+		      
+	    int goodjet_index[jet_n];
+	    int jet_index = 0;
+		      
+	    int goodbjet_index[jet_n];
+	    int bjet_index = 0;
+		     
+		      
+	  for(unsigned int i=0; i<jet_n; i++)
+             {
+	        if(jet_pt->at(i) > 30000. && TMath::Abs(jet_eta->at(i)) < 2.5)
+		   {
+			 // JVT cleaning
+			bool jvt_pass=true;
+		        if (jet_pt->at(i) < 60000. && TMath::Abs(jet_eta->at(i)) < 2.4 && jet_jvt->at(i) < 0.59) jvt_pass=false;
+		        if (jvt_pass) 
+			     {
+			        goodjet_n++;
+			        goodjet_index[jet_index] = i;
+			        jet_index++;
+				  
+				// cut on 0.8244273 is 70% WP	
+				if (jet_MV2c10->at(i) >0.8244273)
+				   {
+				      goodbjet_n = goodbjet_n + 1;
+				      goodbjet_index[bjet_index] = i;
+				      bjet_index++;
+				    }
+				}
+			    }
+			}
+
+	
+	      
+   // TLorentzVector definitions
+   TLorentzVector Lepton_1  = TLorentzVector();
+   TLorentzVector      MeT  = TLorentzVector();
+		      
+		    
+    // nominal values		      
+   Lepton_1.SetPtEtaPhiE(lep_pt->at(goodlep_index), lep_eta->at(goodlep_index), lep_phi->at(goodlep_index),lep_E->at(goodlep_index));
+   MeT.SetPtEtaPhiE(met_et, 0, met_phi , met_et);
+		      
+
+   //Calculation of MTW
+  float mtw = sqrt(2*Lepton_1.Pt()*MeT.Et()*(1-cos(Lepton_1.DeltaPhi(MeT))))/1000.;
+  h_mtw->Fill(mtw, weight);
+
+ // At least four good jets
+
+  if(goodjet_n >= 4)
+    {
+       int goodjet1_index = goodjet_index[0]; // leading jet
+			  
+       //At least two b-tagged jets
+       if(goodbjet_n >= 2)
+       {
+	 int goodbjet1_index = goodbjet_index[0]; // leading b-jet
+			      
+	 // MTW > 30 GeV
+      if(mtw > 30.)
+       {
+  
+          // Invariant mass distribution of the 3-jets combination with the highest vector pT sum, a handle on the top mass
+				  
+	 float PTjjjmax=0;
+	 float Mjjjmax=0;
+	 int a=0; int b=0; int c=0;
+                                  
+	// iterate over 3 jets, build vectors
+     for ( int i = 0; i < goodjet_n; ++i) {
+     for ( int j = i + 1; j < goodjet_n; ++j) {
+     for ( int k = j + 1; k < goodjet_n; ++k) {
+       TLorentzVector jet1  = TLorentzVector(); jet1.SetPtEtaPhiE(jet_pt->at(goodjet_index[i]), jet_eta->at(goodjet_index[i]), jet_phi->at(goodjet_index[i]),jet_E->at(goodjet_index[i]));
+       TLorentzVector jet2  = TLorentzVector(); jet2.SetPtEtaPhiE(jet_pt->at(goodjet_index[j]), jet_eta->at(goodjet_index[j]), jet_phi->at(goodjet_index[j]),jet_E->at(goodjet_index[j]));
+       TLorentzVector jet3  = TLorentzVector(); jet3.SetPtEtaPhiE(jet_pt->at(goodjet_index[k]), jet_eta->at(goodjet_index[k]), jet_phi->at(goodjet_index[k]),jet_E->at(goodjet_index[k]));
+					
+
+       // find largest pT of 3-jet system,
+      float PTjjjTemp = (jet1 + jet2 + jet3).Pt()/1000. ;
+      if (PTjjjTemp>PTjjjmax) { 
+		                 PTjjjmax=PTjjjTemp;  
+				 Mjjjmax = (jet1 + jet2 + jet3).M()/1000.; // this is m(jjj) 
+				 a=i; b=j; c=k; // store the indices
+					  
+			        // among those jets, find largest pT of 2-jet system, a handle of the W-boson
+                                float PTjjTemp12 = (jet1 + jet2).Pt()/1000. ;
+                                float PTjjTemp13 = (jet1 + jet3).Pt()/1000. ;
+                                float PTjjTemp23 = (jet2 + jet3).Pt()/1000. ;
+					  
+                                if (PTjjTemp12 > PTjjTemp13 && PTjjTemp12 > PTjjTemp23) {a=i; b=j; c=k;}
+                                if (PTjjTemp13 > PTjjTemp12 && PTjjTemp13 > PTjjTemp23) {a=i; b=k; c=j;}
+                                if (PTjjTemp23 > PTjjTemp12 && PTjjTemp23 > PTjjTemp13) {a=j; b=k; c=i;}
+					  
+					}   
+				      }
+				    }
+				  }
+					
+
+ // among the previous 3 jets, we search for those 2 that have the maximum pT, a handle on the W-boson mass
+        TLorentzVector j1  = TLorentzVector(); j1.SetPtEtaPhiE(jet_pt->at(goodjet_index[a]), jet_eta->at(goodjet_index[a]), jet_phi->at(goodjet_index[a]),jet_E->at(goodjet_index[a]));
+        TLorentzVector j2  = TLorentzVector(); j2.SetPtEtaPhiE(jet_pt->at(goodjet_index[b]), jet_eta->at(goodjet_index[b]), jet_phi->at(goodjet_index[b]),jet_E->at(goodjet_index[b]));
+				  
+        float Mjjmax= ( j1 + j2 ).M()/1000.; // first indices
+	 h_top->Fill(Mjjjmax,weight);
+	 h_wmass->Fill(Mjjmax,weight);
+				  
+	 //   if ( Mjjjmax > 100 && Mjjjmax < 250)
+	 // { h_top->Fill(Mjjjmax,weight);}
+				  
+	 //	 if ( Mjjmax > 50 && Mjjmax < 120)
+       	 // { h_wmass->Fill(Mjjmax,weight);}
+
+		  
+				}
+			      
+                            }
+			}
+		    }
+	}
+   }
+		
+	}
+   }
+	
+     
+   //  std::cout<<"Number of Z-->mumu + 1mu events: "<<zmm_count<<std::endl;
+    std::cout<<"Number of initial events: "<<count_init<<std::endl;
+    std::cout<<"Number of events that passed trigger: "<<count_trig<<std::endl;
+    std::cout<<"Number of nlep = 2 events: "<<count_lep<<std::endl;
+    std::cout<<"Number of nbjet = 2 ebents: "<<count_bjet<<std::endl;
+    std::cout<<"Number of met passed events: "<<count_met<<std::endl;
+    std::cout<<"Number of mll passed events: "<<count_mll<<std::endl;
+    std::cout<<"Number of mbb passed events: "<<count_mbb<<std::endl;
+    std::cout<<"Number of mllbb passed events: "<<count_mllbb<<std::endl;   
+  
+   
+   outf.Write();
+   //myfile.close();
+   
+}
+
+mini::mini(TTree *tree) : fChain(0) 
+ {
+// if parameter tree is not specified (or zero), connect the file
+// used to generate this class and read the Tree.
+  if (tree == 0) {
+ 
+      TChain* tchain = new TChain("mini");
+      //    tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/Data/data_*.2lep.root");
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363356.ZqqZll.2lep.root"); // ZZ  project
+      //    tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363358.WqqZll.2lep.root"); // WZ  project
+           tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_410000.ttbar_lep.2lep.root"); // ttbar  project
+      //      tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_364122.Zee_PTV140_280_BFilter.2lep.root"); // Z+jet  project
+      
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363491.lllv.2lep.root"); // WZ  MC_actual
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363490.llll.2lep.root");  // ZZ MC
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_3641*.Zmumu_PTV0_70_CVetoBVeto.2lep.root");  //  Z + jet MC  
+      //   tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392217.C1N2_WZ_400p0_0p0_3L_2L7.2lep.root"); // M1 
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392220.C1N2_WZ_350p0_0p0_3L_2L7.2lep.root"); // M2 
+      //    tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392223.C1N2_WZ_500p0_0p0_3L_2L7.2lep.root"); // M3 
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392226.C1N2_WZ_100p0_0p0_3L_2L7.2lep.root"); // M4
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392302.C1N2_WZ_500p0_100p0_2L2J_2L7.2lep.root"); // M5
+      //   tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_301325.ZPrime1000_tt.2lep.root");   // BSM Z' --> tt~
+      
+	 
+      tree = tchain;
+   }
+   Init(tree);
+   Loop();
+}

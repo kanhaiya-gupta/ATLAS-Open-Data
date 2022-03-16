@@ -1,0 +1,199 @@
+#define mini_cxx
+#include "mini.h"
+#include <TH2.h>
+#include <TStyle.h>
+#include <TCanvas.h>
+#include <vector>
+using std::vector;
+#include <iostream>
+#include <fstream>
+#include "TLorentzVector.h"
+#include "TChain.h"
+#include "TMath.h"
+
+void mini::Loop()
+{
+
+   if (fChain == 0) return;
+
+  
+   Long64_t nentries = fChain->GetEntriesFast();
+
+   Long64_t nbytes = 0, nb = 0;
+   // nentries = 10000;  // number of events
+
+  int nEvents=0;
+  int nEvent=0;
+  int nEvent2=0;
+  int nEvent3=0;
+  int nEvent4=0;
+  int nEvent5=0;
+  int nEvent6=0;
+  
+// booking histograms
+   TFile outf("output.root","RECREATE");  // create a root file
+   std::cout << "creating output.root" <<std::endl;
+   
+   // Defining Histograms
+   //   TH1D* h_leppt= new TH1D("leppt","Leading P_{T} lepton; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   //   TH1D* h_jetpt= new TH1D("jetpt","Leading P_{T} b-jet; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   //   TH1D* h_subjetpt= new TH1D("subjetpt","Sub-leading P_{T} b-jet; Lead P_{T} (GeV/c); Events per bin", 200, 0., 500.);
+   TH1D* h_phot= new TH1D("phot","Invariant mass ; M_{#gamma #gamma} (GeV/c^{2}); Events per bin",80,0.,200.);
+   TH1D* h_wmass= new TH1D("wmass","Invariant mass of W boson; M_{jj} (GeV/c^{2}); Events per bin",80,0.,200.);
+   // TH1D* h_top= new TH1D("top","Invariant mass of Top quark; M_{jjj} (GeV/c^{2}); Events per bin",100,40.,400.);
+  //  TH2D* h_lepjet2d = new TH2D("lepjet2d","2D Histogram plot ;M_{ll}/92 (GeV/c^{2});M_{bb}/125 (GeV/c^{2})",100,0.6,1.4,100, 0.2, 2.);
+
+  
+   
+   for  (Long64_t jentry=0; jentry<nentries;jentry++) {
+      Long64_t ientry = LoadTree(jentry);
+      if (ientry < 0) break;
+      nb = fChain->GetEntry(jentry);   nbytes += nb;
+      
+     nEvent++;
+     nEvents++;
+   
+     //Scale factors
+      Float_t scaleFactor = scaleFactor_PHOTON*scaleFactor_PhotonTRIGGER*scaleFactor_PILEUP;
+
+     
+      //MC weight
+      float  m_mcWeight = mcWeight;
+
+      //Total weight
+      //   float weight = scaleFactor*m_mcWeight*XSection/1000.;
+
+      float weight = 1.;    // data
+	
+   //Preselection cut for photon trigger
+  if(trigP)
+     {
+       nEvent2++; // counter
+
+       // Preselection of good photons
+       int goodphoton_index[2];
+       int goodphoton_n = 0;
+       int photon_index =0;
+	  
+       for(unsigned int i=0; i<photon_n; i++)
+	 {
+	   // photons are tight
+	   if( photon_isTightID->at(i) )
+        	{
+              // photons with 25 GeV and excluding the transition region between the barrel and endcap calorimeters
+	   if( photon_pt->at(i) >25000. && TMath::Abs(photon_eta->at(i))<2.37 && ( TMath::Abs(photon_eta->at(i)) < 1.37 || TMath::Abs(photon_eta->at(i)) > 1.52 ) )
+		 {
+		    goodphoton_n = goodphoton_n + 1;
+		    goodphoton_index[photon_index] = i;
+		    photon_index++;
+		    }
+		}
+	    }
+
+      //Exactly two photons
+      if(goodphoton_n==2 )
+       {
+          nEvent3++; // counter
+	      
+	  int goodphoton1_index = goodphoton_index[0];
+	  int goodphoton2_index = goodphoton_index[1];
+	      
+           // isolated photons
+         if( ( (photon_ptcone30->at(goodphoton1_index)/photon_pt->at(goodphoton1_index)) < 0.065) && ( (photon_etcone20->at(goodphoton1_index) / photon_pt->at(goodphoton1_index)) < 0.065 ) )
+	  {
+	     if( ( (photon_ptcone30->at(goodphoton2_index)/photon_pt->at(goodphoton2_index)) < 0.065) && ( (photon_etcone20->at(goodphoton2_index) / photon_pt->at(goodphoton2_index)) < 0.065 ) )
+		{
+		      
+		   nEvent4++; // counter 
+
+                   // create 2 vectors
+
+		   TLorentzVector Photon_1  = TLorentzVector();
+		   TLorentzVector Photon_2  = TLorentzVector();
+		      
+	        Photon_1.SetPtEtaPhiE(photon_pt->at(goodphoton1_index), photon_eta->at(goodphoton1_index), photon_phi->at(goodphoton1_index),photon_E->at(goodphoton1_index));
+		Photon_2.SetPtEtaPhiE(photon_pt->at(goodphoton2_index), photon_eta->at(goodphoton2_index), photon_phi->at(goodphoton2_index),photon_E->at(goodphoton2_index));
+		      
+	        // calculate dPhi(photon-photon)
+	       float dPhi_yy = TMath::Abs(photon_phi->at(goodphoton1_index) - photon_phi->at(goodphoton2_index) );
+	       dPhi_yy       = dPhi_yy < TMath::Pi() ? dPhi_yy : 2*TMath::Pi() - dPhi_yy;
+		      
+		  // diphoton mass
+	       float m_yy  = sqrt( 2 * Photon_1.Pt()/1000. * Photon_2.Pt()/1000. * (cosh( Photon_1.Eta() - Photon_2.Eta()) - cos(dPhi_yy)));
+	       // kinematics
+	       float Photon_1_kin = Photon_1.Pt()/1000. / m_yy;
+	       float Photon_2_kin = Photon_2.Pt()/1000. / m_yy;
+		      
+	        // kinematical selection
+
+	        if ( Photon_1_kin > 0.35 && Photon_2_kin > 0.25 ) 
+	       	{ 		     
+	
+	             nEvent5++; // counter
+
+                      // mass-window cut			  
+		      if(m_yy > 105 && m_yy < 160 ) 
+		        {
+
+                           h_phot->Fill( m_yy, weight); // 30 bins
+
+			   nEvent6++; // counter 
+
+		      // unconverted central category 
+	  if ( TMath::Abs(photon_eta->at(goodphoton1_index)) < 0.75 && TMath::Abs(photon_eta->at(goodphoton2_index)) < 0.75 && photon_convType->at(goodphoton1_index)==0 && photon_convType->at(goodphoton2_index)==0 )
+	      {
+                    h_wmass->Fill( m_yy, weight); // 30 bins
+			      }
+			    }
+			}
+		    }
+		}
+	    }
+     }
+   }
+
+
+
+   cout << "Analyzed a total of               : " << nEvent << " events" << endl;
+  cout << "Counter after trigger selection   : " << nEvent2/nEvent  << " (fraction from previous) or " << nEvent2 << " events" << endl;
+  cout << "Counter after 2 good tight photons: " << nEvent3/nEvent2 << " (fraction from previous) or " << nEvent3 << " events" << endl;
+  cout << "Counter after 2 isolated photons  : " << nEvent4/nEvent3 << " (fraction from previous) or " << nEvent4 << " events" << endl;
+  cout << "Counter after pT cuts on photons  : " << nEvent5/nEvent4 << " (fraction from previous) or " << nEvent5 << " events" << endl;
+  cout << "Counter after mass-window cut     : " << nEvent6/nEvent5 << " (fraction from previous) or " << nEvent6 << " events" << endl;
+ 
+   
+   outf.Write();
+   //myfile.close();
+   
+}
+
+mini::mini(TTree *tree) : fChain(0) 
+ {
+// if parameter tree is not specified (or zero), connect the file
+// used to generate this class and read the Tree.
+  if (tree == 0) {
+ 
+      TChain* tchain = new TChain("mini");
+          tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/Data/data_*.2lep.root");
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpenData/IntWeek/DataEgamma.root");
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363356.ZqqZll.2lep.root"); // ZZ  project
+      //    tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363358.WqqZll.2lep.root"); // WZ  project
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_410000.ttbar_lep.2lep.root"); // ttbar  project
+      //      tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_364122.Zee_PTV140_280_BFilter.2lep.root"); // Z+jet  project
+      
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363491.lllv.2lep.root"); // WZ  MC_actual
+      //     tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_363490.llll.2lep.root");  // ZZ MC
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_3641*.Zmumu_PTV0_70_CVetoBVeto.2lep.root");  //  Z + jet MC  
+      //   tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392217.C1N2_WZ_400p0_0p0_3L_2L7.2lep.root"); // M1 
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392220.C1N2_WZ_350p0_0p0_3L_2L7.2lep.root"); // M2 
+      //    tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392223.C1N2_WZ_500p0_0p0_3L_2L7.2lep.root"); // M3 
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392226.C1N2_WZ_100p0_0p0_3L_2L7.2lep.root"); // M4
+      //  tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_392302.C1N2_WZ_500p0_100p0_2L2J_2L7.2lep.root"); // M5
+      //   tchain->Add("/cephfs/user/etoerne/ATLASOpen13TevData/2lep/MC/mc_301325.ZPrime1000_tt.2lep.root");   // BSM Z' --> tt~
+      
+	 
+      tree = tchain;
+   }
+   Init(tree);
+   Loop();
+}

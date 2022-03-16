@@ -1,0 +1,105 @@
+//Example for fitting signal/background. 
+// This example can be executed with:
+// root > .x FittingDemo.C  (using the CINT interpreter)
+// root > .x FittingDemo.C+ (using the native complier via ACLIC)
+//Author: Rene Brun
+   
+#include "TH1.h"
+#include "TMath.h"
+#include "TF1.h"
+#include "TLegend.h"
+#include "TCanvas.h"
+
+const int nbgdpar=3; // Update this number if you change the background function
+
+// Quadratic background function
+Double_t background(Double_t *x, Double_t *par) {
+   return par[0] + par[1]*x[0] + par[2]*x[0]*x[0];
+}
+
+
+// Gauss Peak function
+Double_t signal(Double_t *x, Double_t *par) {
+   // par[0] scale, par[1] sigma, par[2] peakposition
+   return par[0]*TMath::Exp(-0.5*(x[0]-par[2])*(x[0]-par[2])/(par[1]*par[1]));
+}
+
+// Sum of background and peak function
+Double_t fitFunction(Double_t *x, Double_t *par) {
+  return background(x,par) + signal(x,&par[nbgdpar]);
+}
+
+void FitDemoWithSignalNumber() {
+ //Bevington Exercise by Peter Malzacher, modified by Rene Brun, Eckhard von Toerne
+   gStyle->SetOptFit(1111);
+   gStyle->SetOptStat(0);
+   const int nBins = 60;
+   // fit range from fitxmin to fitxmax
+   float fitxmin=0.2;
+   float fitxmax=2.7;
+   
+   Double_t data[nBins] = { 6, 1,10,12, 6,13,23,22,15,21,
+                           23,26,36,25,27,35,40,44,66,81,
+                           75,57,43,37,36,31,35,36,43,32,
+                           40,37,38,33,36,44,42,37,32,32,
+                           43,44,35,33,33,39,29,41,32,44,
+                           26,39,29,35,32,21,21,15,25,15};
+   TCanvas *c1 = new TCanvas("c1","Fitting Demo",10,10,700,500);
+   //c1->SetFillColor(33);
+   //c1->SetFrameFillColor(41);
+   //c1->SetGrid();
+   
+   TH1D *histo = new TH1D("histo",
+      "Gauss Peak on Quadratic Background",60,0,3);
+   histo->SetMarkerStyle(21);
+   histo->SetMarkerSize(0.8);
+   //histo->SetStats(0);
+       
+   for(int i=0; i < nBins;  i++) histo->SetBinContent(i+1,data[i]);
+   
+   // create a TF1 with the range from 0 to 3 and 6 parameters
+   TF1 *fitFcn = new TF1("fitFcn",fitFunction,fitxmin,fitxmax,6);
+   fitFcn->SetNpx(500);
+   fitFcn->SetLineWidth(2);
+   fitFcn->SetLineColor(kBlue);
+    
+   // first try without starting values for the parameters
+   // This defaults to 1 for each param. 
+   // this results in an ok fit for the polynomial function
+   // however the non-linear part (lorenzian) does not 
+   // respond well.
+   fitFcn->SetParameters(30,0,0,50.,0.1,1.);
+   histo->GetXaxis()->SetRange(2,40); 
+   histo->Fit("fitFcn","VR+","ep");
+   
+   // improve the picture:
+   TF1 *backFcn = new TF1("backFcn",background,fitxmin,fitxmax,3);
+   backFcn->SetLineColor(kRed);
+   TF1 *signalFcn = new TF1("signalFcn",signal,fitxmin,fitxmax,3);
+   signalFcn->SetLineColor(kBlue);
+   signalFcn->SetNpx(500);
+   Double_t par[6];
+  
+   // writes the fit results into the par array
+   fitFcn->GetParameters(par);
+    
+   backFcn->SetParameters(par);
+   backFcn->Draw("same");
+ 
+   signalFcn->SetParameters(&par[nbgdpar]);
+   //signalFcn->Draw("same");
+   double binwidth=(histo->GetXaxis()->GetXmax()-histo->GetXaxis()->GetXmin())/histo->GetNbinsX();
+   double integral = signalFcn->Integral(0.,3.);
+   cout << "Nsignal="<<integral/binwidth<<endl;
+   // 
+   // draw the legend
+   TLegend *legend=new TLegend(0.15,0.7,0.28,0.85);
+   legend->SetTextFont(72);
+   legend->SetTextSize(0.03);
+   legend->AddEntry(histo,"Data","lpe");
+   legend->AddEntry(backFcn,"Bgd","l");
+   legend->AddEntry(fitFcn,"Sig+Bgd","l");
+   legend->Draw();
+   histo->Draw("esame");
+   
+}
